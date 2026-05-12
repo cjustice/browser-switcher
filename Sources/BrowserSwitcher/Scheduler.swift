@@ -1,24 +1,5 @@
 import Foundation
 
-public enum Browser: String, Codable, Sendable {
-    case chrome
-    case firefox
-
-    public var displayName: String {
-        switch self {
-        case .chrome: return "Chrome"
-        case .firefox: return "Firefox"
-        }
-    }
-
-    public var bundleID: String {
-        switch self {
-        case .chrome: return "com.google.Chrome"
-        case .firefox: return "org.mozilla.firefox"
-        }
-    }
-}
-
 public struct Schedule: Equatable, Sendable {
     public var startHour: Int
     public var startMinute: Int
@@ -42,7 +23,7 @@ public struct Schedule: Equatable, Sendable {
 }
 
 public struct ScheduleEvaluation: Equatable, Sendable {
-    public let expected: Browser
+    public let slot: Slot
     public let nextBoundary: Date
 }
 
@@ -62,20 +43,19 @@ public enum Scheduler {
 
         if isWeekend {
             return ScheduleEvaluation(
-                expected: .firefox,
+                slot: .outsideWindow,
                 nextBoundary: nextWeekdayStart(after: now, schedule: schedule, calendar: calendar)
             )
         }
 
         if now < todayStart {
-            return ScheduleEvaluation(expected: .firefox, nextBoundary: todayStart)
+            return ScheduleEvaluation(slot: .outsideWindow, nextBoundary: todayStart)
         }
         if now < todayEnd {
-            return ScheduleEvaluation(expected: .chrome, nextBoundary: todayEnd)
+            return ScheduleEvaluation(slot: .inWindow, nextBoundary: todayEnd)
         }
-        // After end of today's window.
         return ScheduleEvaluation(
-            expected: .firefox,
+            slot: .outsideWindow,
             nextBoundary: nextWeekdayStart(after: now, schedule: schedule, calendar: calendar)
         )
     }
@@ -88,7 +68,6 @@ public enum Scheduler {
         return calendar.date(from: comps) ?? date
     }
 
-    /// First weekday strictly after `now`, at the schedule's start time.
     private static func nextWeekdayStart(after now: Date, schedule: Schedule, calendar: Calendar) -> Date {
         var candidate = calendar.date(byAdding: .day, value: 1, to: now) ?? now
         for _ in 0..<7 {

@@ -20,56 +20,56 @@ final class SchedulerTests: XCTestCase {
     func test_weekdayBeforeStart_isFirefox_boundaryIsTodayStart() {
         let now = date(2026, 5, 12, 7, 30)
         let eval = Scheduler.evaluate(schedule, at: now, calendar: calendar)
-        XCTAssertEqual(eval.expected, .firefox)
+        XCTAssertEqual(eval.slot, .outsideWindow)
         XCTAssertEqual(eval.nextBoundary, date(2026, 5, 12, 9, 0))
     }
 
     func test_weekdayInsideWindow_isChrome_boundaryIsTodayEnd() {
         let now = date(2026, 5, 12, 14, 0)
         let eval = Scheduler.evaluate(schedule, at: now, calendar: calendar)
-        XCTAssertEqual(eval.expected, .chrome)
+        XCTAssertEqual(eval.slot, .inWindow)
         XCTAssertEqual(eval.nextBoundary, date(2026, 5, 12, 18, 0))
     }
 
     func test_weekdayAtStart_isChrome() {
         let now = date(2026, 5, 12, 9, 0)
         let eval = Scheduler.evaluate(schedule, at: now, calendar: calendar)
-        XCTAssertEqual(eval.expected, .chrome)
+        XCTAssertEqual(eval.slot, .inWindow)
         XCTAssertEqual(eval.nextBoundary, date(2026, 5, 12, 18, 0))
     }
 
     func test_weekdayAtEnd_isFirefox() {
         let now = date(2026, 5, 12, 18, 0)
         let eval = Scheduler.evaluate(schedule, at: now, calendar: calendar)
-        XCTAssertEqual(eval.expected, .firefox)
+        XCTAssertEqual(eval.slot, .outsideWindow)
         XCTAssertEqual(eval.nextBoundary, date(2026, 5, 13, 9, 0))
     }
 
     func test_weekdayAfterEnd_boundaryIsTomorrowStart() {
         let now = date(2026, 5, 12, 20, 0)
         let eval = Scheduler.evaluate(schedule, at: now, calendar: calendar)
-        XCTAssertEqual(eval.expected, .firefox)
+        XCTAssertEqual(eval.slot, .outsideWindow)
         XCTAssertEqual(eval.nextBoundary, date(2026, 5, 13, 9, 0))
     }
 
     func test_fridayAfterEnd_boundaryIsMondayStart() {
         let now = date(2026, 5, 15, 20, 0) // Friday
         let eval = Scheduler.evaluate(schedule, at: now, calendar: calendar)
-        XCTAssertEqual(eval.expected, .firefox)
+        XCTAssertEqual(eval.slot, .outsideWindow)
         XCTAssertEqual(eval.nextBoundary, date(2026, 5, 18, 9, 0))
     }
 
     func test_saturday_isFirefox_boundaryIsMondayStart() {
         let now = date(2026, 5, 16, 12, 0)
         let eval = Scheduler.evaluate(schedule, at: now, calendar: calendar)
-        XCTAssertEqual(eval.expected, .firefox)
+        XCTAssertEqual(eval.slot, .outsideWindow)
         XCTAssertEqual(eval.nextBoundary, date(2026, 5, 18, 9, 0))
     }
 
     func test_sunday_isFirefox_boundaryIsMondayStart() {
         let now = date(2026, 5, 17, 23, 30)
         let eval = Scheduler.evaluate(schedule, at: now, calendar: calendar)
-        XCTAssertEqual(eval.expected, .firefox)
+        XCTAssertEqual(eval.slot, .outsideWindow)
         XCTAssertEqual(eval.nextBoundary, date(2026, 5, 18, 9, 0))
     }
 }

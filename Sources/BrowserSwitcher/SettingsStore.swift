@@ -1,11 +1,13 @@
 import Foundation
 import Combine
+import AppKit
 import ServiceManagement
 
 public final class SettingsStore: ObservableObject {
     public static let shared = SettingsStore()
 
     private let defaults: UserDefaults
+    private let discovery = BrowserDiscovery()
 
     private enum Key {
         static let startHour    = "schedule.startHour"
@@ -13,13 +15,18 @@ public final class SettingsStore: ObservableObject {
         static let endHour      = "schedule.endHour"
         static let endMinute    = "schedule.endMinute"
         static let enabled      = "schedule.enabled"
-        static let overrideBrowser   = "override.browser"
+
+        static let slotChoice   = "slot.choice."       // suffix: Slot.rawValue, value: JSON-encoded BrowserChoice
+        static let overrideSlot = "override.slot"      // BrowserChoice JSON for the override
         static let overrideExpiresAt = "override.expiresAt"
+
+        // Legacy v0.1 keys, removed during migration.
+        static let legacyOverrideBrowser = "override.browser"
     }
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        // Seed defaults on first launch.
+
         if defaults.object(forKey: Key.enabled) == nil {
             defaults.set(true, forKey: Key.enabled)
             defaults.set(9,  forKey: Key.startHour)
@@ -27,7 +34,12 @@ public final class SettingsStore: ObservableObject {
             defaults.set(18, forKey: Key.endHour)
             defaults.set(0,  forKey: Key.endMinute)
         }
+
+        migrateLegacyKeys()
+        seedDefaultSlotsIfNeeded()
     }
+
+    // MARK: Schedule
 
     public var schedule: Schedule {
         get {
@@ -49,46 +61,64 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    public var override: (browser: Browser, expiresAt: Date)? {
-        guard
-            let raw = defaults.string(forKey: Key.overrideBrowser),
-            let browser = Browser(rawValue: raw),
-            let expiresAt = defaults.object(forKey: Key.overrideExpiresAt) as? Date
+    // MARK: Slot configuration
+
+    public func choice(for slot: Slot) -> BrowserChoice? {
+        let key = Key.slotChoice + slot.rawValue
+        guard let data = defaults.data(forKey: key),
+              let decoded = try? JSONDecoder().decode(BrowserChoice.self, from: data)
         else { return nil }
-        return (browser, expiresAt)
+        return decoded
     }
 
-    /// Returns the browser the system should currently default to, or `nil` if
-    /// the schedule is paused (caller should leave the system default alone).
-    public func currentTarget(now: Date = Date(), calendar: Calendar = .current) -> Browser? {
+    public func setChoice(_ choice: BrowserChoice, for slot: Slot) {
+        let key = Key.slotChoice + slot.rawValue
+        if let data = try? JSONEncoder().encode(choice) {
+            defaults.set(data, forKey: key)
+        }
+        objectWillChange.send()
+    }
+
+    // MARK: Override
+
+    public var override: (choice: BrowserChoice, expiresAt: Date)? {
+        guard let data = defaults.data(forKey: Key.overrideSlot),
+              let choice = try? JSONDecoder().decode(BrowserChoice.self, from: data),
+              let expiresAt = defaults.object(forKey: Key.overrideExpiresAt) as? Date
+        else { return nil }
+        return (choice, expiresAt)
+    }
+
+    /// Returns the browser choice the system should currently default to, or `nil`
+    /// if paused or no slot is configured.
+    public func currentChoice(now: Date = Date(), calendar: Calendar = .current) -> BrowserChoice? {
         let sched = schedule
         guard sched.enabled else { return nil }
 
         if let ov = override, ov.expiresAt > now {
-            return ov.browser
-        }
-        return Scheduler.evaluate(sched, at: now, calendar: calendar).expected
-    }
-
-    /// Apply a manual override. No-op if the schedule already wants `browser`
-    /// (we don't create override state for a choice that matches the schedule).
-    public func applyOverride(_ browser: Browser, now: Date = Date(), calendar: Calendar = .current) {
-        let sched = schedule
-        guard sched.enabled else {
-            // Paused — caller will call BrowserSwitcher directly. Don't record an override.
-            return
+            return ov.choice
         }
         let eval = Scheduler.evaluate(sched, at: now, calendar: calendar)
-        if eval.expected == browser, override == nil {
+        return choice(for: eval.slot)
+    }
+
+    public func applyOverride(_ choice: BrowserChoice, now: Date = Date(), calendar: Calendar = .current) {
+        let sched = schedule
+        guard sched.enabled else { return }
+        let eval = Scheduler.evaluate(sched, at: now, calendar: calendar)
+        let scheduledChoice = self.choice(for: eval.slot)
+        if scheduledChoice == choice, override == nil {
             return
         }
-        defaults.set(browser.rawValue, forKey: Key.overrideBrowser)
+        if let data = try? JSONEncoder().encode(choice) {
+            defaults.set(data, forKey: Key.overrideSlot)
+        }
         defaults.set(eval.nextBoundary, forKey: Key.overrideExpiresAt)
         objectWillChange.send()
     }
 
     public func clearOverride() {
-        defaults.removeObject(forKey: Key.overrideBrowser)
+        defaults.removeObject(forKey: Key.overrideSlot)
         defaults.removeObject(forKey: Key.overrideExpiresAt)
         objectWillChange.send()
     }
@@ -113,5 +143,36 @@ public final class SettingsStore: ObservableObject {
             try SMAppService.mainApp.unregister()
         }
         objectWillChange.send()
+    }
+
+    // MARK: Migration / defaults seeding
+
+    private func migrateLegacyKeys() {
+        if defaults.object(forKey: Key.legacyOverrideBrowser) != nil {
+            defaults.removeObject(forKey: Key.legacyOverrideBrowser)
+            defaults.removeObject(forKey: Key.overrideExpiresAt)
+        }
+    }
+
+    /// On first launch (or any launch where slots are unconfigured), pick reasonable
+    /// defaults from the installed browser list.
+    private func seedDefaultSlotsIfNeeded() {
+        let browsers = discovery.installedBrowsers()
+        if choice(for: .inWindow) == nil {
+            if let chrome = browsers.first(where: { $0.bundleID == "com.google.Chrome" }) {
+                setChoice(BrowserChoice(bundleID: chrome.bundleID, appName: chrome.appName), for: .inWindow)
+            } else if let first = browsers.first {
+                setChoice(BrowserChoice(bundleID: first.bundleID, appName: first.appName), for: .inWindow)
+            }
+        }
+        if choice(for: .outsideWindow) == nil {
+            if let firefox = browsers.first(where: { $0.bundleID == "org.mozilla.firefox" }) {
+                setChoice(BrowserChoice(bundleID: firefox.bundleID, appName: firefox.appName), for: .outsideWindow)
+            } else if let safari = browsers.first(where: { $0.bundleID == "com.apple.Safari" }) {
+                setChoice(BrowserChoice(bundleID: safari.bundleID, appName: safari.appName), for: .outsideWindow)
+            } else if let alt = browsers.first(where: { $0.bundleID != choice(for: .inWindow)?.bundleID }) {
+                setChoice(BrowserChoice(bundleID: alt.bundleID, appName: alt.appName), for: .outsideWindow)
+            }
+        }
     }
 }

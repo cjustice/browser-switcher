@@ -4,7 +4,7 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = SettingsStore.shared
-    let switcher = BrowserSwitcher()
+    let configWriter = FinickyConfigWriter()
     var menuBar: MenuBarController!
     private var settingsWindow: NSWindow?
     private var timer: Timer?
@@ -14,7 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menuBar = MenuBarController(
             store: store,
-            switcher: switcher,
+            configWriter: configWriter,
             onChange: { [weak self] in self?.evaluateAndApply() },
             onShowSettings: { [weak self] in self?.showSettings() }
         )
@@ -36,13 +36,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             store.clearOverride()
         }
 
-        guard let target = store.currentTarget(now: now) else {
-            menuBar?.render()
-            return
-        }
-
-        if switcher.isInstalled(target), switcher.currentDefault() != target {
-            switcher.setDefault(target)
+        if let choice = store.currentChoice(now: now) {
+            do {
+                try configWriter.write(choice)
+            } catch {
+                NSLog("Browser Switcher: failed to write Finicky config: \(error)")
+            }
         }
 
         menuBar?.render()

@@ -5,7 +5,7 @@ import SwiftUI
 public final class MenuBarController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let store: SettingsStore
-    private let switcher: BrowserSwitcher
+    private let configWriter: FinickyConfigWriter
     private let onChange: () -> Void
     private let onShowSettings: () -> Void
 
@@ -18,13 +18,13 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
 
     public init(
         store: SettingsStore,
-        switcher: BrowserSwitcher,
+        configWriter: FinickyConfigWriter,
         onChange: @escaping () -> Void,
         onShowSettings: @escaping () -> Void
     ) {
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         self.store = store
-        self.switcher = switcher
+        self.configWriter = configWriter
         self.onChange = onChange
         self.onShowSettings = onShowSettings
         super.init()
@@ -35,35 +35,28 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
 
     public func render() {
         guard let button = statusItem.button else { return }
-        let current = switcher.currentDefault()
-        let symbolName: String
-        switch current {
-        case .chrome:  symbolName = "globe.americas.fill"
-        case .firefox: symbolName = "globe.europe.africa.fill"
-        case .none:    symbolName = "globe"
-        }
-        let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Browser Switcher")
+        let current = store.currentChoice()
+        let image = NSImage(systemSymbolName: "globe", accessibilityDescription: "Browser Switcher")
         image?.isTemplate = true
         button.image = image
-        button.toolTip = current.map { "Default browser: \($0.displayName)" } ?? "Default browser: unknown"
-
+        button.toolTip = current.map { "Default browser: \($0.displayLabel)" } ?? "Default browser: (paused)"
         rebuildMenu(current: current)
     }
 
-    private func rebuildMenu(current: Browser?) {
+    private func rebuildMenu(current: BrowserChoice?) {
         let menu = statusItem.menu ?? NSMenu()
         menu.removeAllItems()
 
-        let header = NSMenuItem(title: "Now: \(current?.displayName ?? "—")", action: nil, keyEquivalent: "")
+        let header = NSMenuItem(title: "Now: \(current?.displayLabel ?? "—")", action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
         menu.addItem(.separator())
 
-        addBrowserItem(to: menu, browser: .chrome, current: current, keyEquivalent: "1")
-        addBrowserItem(to: menu, browser: .firefox, current: current, keyEquivalent: "2")
+        let sched = store.schedule
+        addSlotItem(to: menu, slot: .inWindow, label: "In-window", current: current, keyEquivalent: "1", paused: !sched.enabled)
+        addSlotItem(to: menu, slot: .outsideWindow, label: "Out-of-window", current: current, keyEquivalent: "2", paused: !sched.enabled)
         menu.addItem(.separator())
 
-        let sched = store.schedule
         let scheduleLine: String
         if sched.enabled {
             scheduleLine = "Schedule: \(formatTime(hour: sched.startHour, minute: sched.startMinute)) – \(formatTime(hour: sched.endHour, minute: sched.endMinute)) Mon–Fri"
@@ -92,6 +85,16 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
 
+        if !configWriter.isFinickyInstalled() {
+            let warn = NSMenuItem(title: "⚠ Finicky is not installed", action: nil, keyEquivalent: "")
+            warn.isEnabled = false
+            menu.addItem(warn)
+        } else if !configWriter.isFinickyDefaultBrowser() {
+            let warn = NSMenuItem(title: "⚠ Finicky is not the default browser", action: nil, keyEquivalent: "")
+            warn.isEnabled = false
+            menu.addItem(warn)
+        }
+
         let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
@@ -101,19 +104,26 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
         menu.addItem(quitItem)
     }
 
-    private func addBrowserItem(to menu: NSMenu, browser: Browser, current: Browser?, keyEquivalent: String) {
-        let item = NSMenuItem(
-            title: "Use \(browser.displayName)",
-            action: #selector(useBrowser(_:)),
-            keyEquivalent: keyEquivalent
-        )
-        item.target = self
-        item.representedObject = browser.rawValue
-        item.state = (current == browser) ? .on : .off
-        item.isEnabled = switcher.isInstalled(browser)
-        if !item.isEnabled {
-            item.toolTip = "\(browser.displayName) is not installed"
+    private func addSlotItem(
+        to menu: NSMenu,
+        slot: Slot,
+        label: String,
+        current: BrowserChoice?,
+        keyEquivalent: String,
+        paused: Bool
+    ) {
+        let choice = store.choice(for: slot)
+        let title: String
+        if let choice {
+            title = "Use \(choice.displayLabel)  (\(label))"
+        } else {
+            title = "Use \(label) — not configured"
         }
+        let item = NSMenuItem(title: title, action: #selector(useSlot(_:)), keyEquivalent: keyEquivalent)
+        item.target = self
+        item.representedObject = slot.rawValue
+        item.state = (current == choice && choice != nil) ? .on : .off
+        item.isEnabled = (choice != nil) && !paused
         menu.addItem(item)
     }
 
@@ -128,13 +138,11 @@ public final class MenuBarController: NSObject, NSMenuDelegate {
 
     // MARK: Actions
 
-    @objc private func useBrowser(_ sender: NSMenuItem) {
+    @objc private func useSlot(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String,
-              let browser = Browser(rawValue: raw) else { return }
-        if store.schedule.enabled {
-            store.applyOverride(browser)
-        }
-        switcher.setDefault(browser)
+              let slot = Slot(rawValue: raw),
+              let choice = store.choice(for: slot) else { return }
+        store.applyOverride(choice)
         onChange()
     }
 
