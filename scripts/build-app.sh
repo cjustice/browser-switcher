@@ -21,6 +21,7 @@ mkdir -p "$APP_BUNDLE/Contents/Resources"
 
 cp "$BUILD_DIR/$EXEC_NAME" "$APP_BUNDLE/Contents/MacOS/$EXEC_NAME"
 cp "$ROOT/Sources/BrowserSwitcher/Resources/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
+cp "$ROOT/Sources/BrowserSwitcher/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 
 # Ad-hoc sign so launching via Finder / login items behaves.
 codesign --force --deep --sign - "$APP_BUNDLE" >/dev/null

@@ -5,7 +5,7 @@ import AppKit
 /// Finicky's fsnotify watcher reloads automatically (~500ms debounce).
 public final class FinickyConfigWriter {
 
-    public static let finickyBundleID = "net.kassett.Finicky"
+    public static let finickyBundleID = "se.johnste.finicky"
 
     private let configPath: URL
     private let managedMarker = "// Managed by Browser Switcher — do not edit by hand."
@@ -60,6 +60,9 @@ public final class FinickyConfigWriter {
         } else {
             lines.append("  defaultBrowser: { name: \(appName) },")
         }
+        lines.append("  options: {")
+        lines.append("    hideIcon: true,")
+        lines.append("  },")
         lines.append("};")
         lines.append("")
         return lines.joined(separator: "\n")

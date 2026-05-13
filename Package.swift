@@ -3,12 +3,12 @@ import PackageDescription
 
 let package = Package(
     name: "BrowserSwitcher",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(
             name: "BrowserSwitcher",
             path: "Sources/BrowserSwitcher",
-            exclude: ["Resources/Info.plist"],
+            exclude: ["Resources/Info.plist", "Resources/AppIcon.icns"],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("CoreServices"),

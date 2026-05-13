@@ -5,19 +5,15 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = SettingsStore.shared
     let configWriter = FinickyConfigWriter()
-    var menuBar: MenuBarController!
-    private var settingsWindow: NSWindow?
     private var timer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
-        menuBar = MenuBarController(
-            store: store,
-            configWriter: configWriter,
-            onChange: { [weak self] in self?.evaluateAndApply() },
-            onShowSettings: { [weak self] in self?.showSettings() }
-        )
+        NSSetUncaughtExceptionHandler { exc in
+            NSLog("BrowserSwitcher uncaught: \(exc.name.rawValue) — \(exc.reason ?? "(no reason)")")
+        }
+
         evaluateAndApply()
 
         let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
@@ -43,24 +39,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSLog("Browser Switcher: failed to write Finicky config: \(error)")
             }
         }
-
-        menuBar?.render()
-    }
-
-    func showSettings() {
-        if settingsWindow == nil {
-            let view = SettingsView(store: store) { [weak self] in
-                self?.evaluateAndApply()
-            }
-            let hosting = NSHostingController(rootView: view)
-            let window = NSWindow(contentViewController: hosting)
-            window.title = "Browser Switcher"
-            window.styleMask = [.titled, .closable]
-            window.isReleasedWhenClosed = false
-            window.center()
-            settingsWindow = window
-        }
-        NSApp.activate(ignoringOtherApps: true)
-        settingsWindow?.makeKeyAndOrderFront(nil)
     }
 }
