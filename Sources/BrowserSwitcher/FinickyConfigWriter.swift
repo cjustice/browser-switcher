@@ -17,16 +17,20 @@ public final class FinickyConfigWriter {
 
     public var configURL: URL { configPath }
 
-    /// Write the config atomically. Returns true if a write occurred (i.e. content changed).
+    /// Write the config in place. Returns true if a write occurred (i.e. content changed).
+    ///
+    /// The write is deliberately NOT atomic: a rename-replace destroys the inode
+    /// Finicky's fsnotify watcher is attached to, and Finicky treats that as
+    /// "config removed" and stops watching until it is relaunched. An in-place
+    /// truncate+write keeps the inode, and Finicky's 500ms debounce absorbs any
+    /// partially-written intermediate state.
     @discardableResult
     public func write(_ choice: BrowserChoice) throws -> Bool {
         let newContents = Self.render(managedMarker: managedMarker, choice: choice)
         if let existing = try? String(contentsOf: configPath, encoding: .utf8), existing == newContents {
             return false
         }
-        let tmp = configPath.appendingPathExtension("tmp")
-        try newContents.write(to: tmp, atomically: true, encoding: .utf8)
-        _ = try FileManager.default.replaceItemAt(configPath, withItemAt: tmp)
+        try newContents.write(to: configPath, atomically: false, encoding: .utf8)
         return true
     }
 
@@ -51,7 +55,7 @@ public final class FinickyConfigWriter {
         lines.append(managedMarker)
         lines.append("// Regenerated whenever the active schedule slot or override changes.")
         lines.append("")
-        lines.append("module.exports = {")
+        lines.append("export default {")
         if let profile = choice.profileDirectory, !profile.isEmpty {
             lines.append("  defaultBrowser: {")
             lines.append("    name: \(appName),")
